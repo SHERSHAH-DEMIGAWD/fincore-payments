@@ -1,0 +1,156 @@
+spring:
+  application:
+    name: fincore-payments
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/fincore_payments}
+    username: ${DB_USERNAME:fincore}
+    password: ${DB_PASSWORD:local_dev_only}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+fincore:
+  observability:
+    enabled: ${FINCORE_OBSERVABILITY_ENABLED:false}
+    username: ${FINCORE_OBSERVABILITY_USERNAME:}
+    password-hash: ${FINCORE_OBSERVABILITY_PASSWORD_HASH:}
+    collector-enabled: ${FINCORE_OBSERVABILITY_COLLECTOR_ENABLED:true}
+    snapshot-interval-millis: ${FINCORE_OBSERVABILITY_SNAPSHOT_INTERVAL_MILLIS:15000}
+    trace-export-enabled: ${FINCORE_TRACE_EXPORT_ENABLED:false}
+    trace-endpoint: ${FINCORE_TRACE_ENDPOINT:http://127.0.0.1:4318/v1/traces}
+  risk:
+    enabled: ${FINCORE_RISK_ENABLED:false}
+    currency: ${FINCORE_RISK_CURRENCY:INR}
+    maximum-amount: ${FINCORE_RISK_MAXIMUM_AMOUNT:100000.00}
+    max-admissions: ${FINCORE_RISK_MAX_ADMISSIONS:20}
+    window-seconds: ${FINCORE_RISK_WINDOW_SECONDS:60}
+    namespace: ${FINCORE_RISK_NAMESPACE:local}
+    redis-host: ${FINCORE_RISK_REDIS_HOST:127.0.0.1}
+    redis-port: ${FINCORE_RISK_REDIS_PORT:6379}
+    redis-database: ${FINCORE_RISK_REDIS_DATABASE:0}
+    timeout-millis: ${FINCORE_RISK_TIMEOUT_MILLIS:250}
+    redis-username: ${FINCORE_RISK_REDIS_USERNAME:}
+    redis-password: ${FINCORE_RISK_REDIS_PASSWORD:}
+  settlement:
+    enabled: ${FINCORE_SETTLEMENT_ENABLED:false}
+    signing-key: ${FINCORE_SETTLEMENT_SIGNING_KEY:}
+    key-id: ${FINCORE_SETTLEMENT_KEY_ID:sandbox-v1}
+    instance-id: ${FINCORE_SETTLEMENT_INSTANCE_ID:00000000-0000-0000-0000-000000000000}
+  merchant-webhooks:
+    enabled: ${FINCORE_MERCHANT_WEBHOOKS_ENABLED:false}
+    dispatch-enabled: ${FINCORE_MERCHANT_WEBHOOK_DISPATCH_ENABLED:false}
+    master-key: ${FINCORE_MERCHANT_WEBHOOK_MASTER_KEY:}
+    master-key-id: ${FINCORE_MERCHANT_WEBHOOK_MASTER_KEY_ID:local-master-v1}
+    allowed-destinations: ${FINCORE_MERCHANT_WEBHOOK_ALLOWED_DESTINATIONS:[]}
+    max-subscriptions: ${FINCORE_MERCHANT_WEBHOOK_MAX_SUBSCRIPTIONS:5}
+    batch-size: ${FINCORE_MERCHANT_WEBHOOK_BATCH_SIZE:20}
+    timeout-millis: ${FINCORE_MERCHANT_WEBHOOK_TIMEOUT_MILLIS:2000}
+    lease-seconds: ${FINCORE_MERCHANT_WEBHOOK_LEASE_SECONDS:30}
+    max-attempts: ${FINCORE_MERCHANT_WEBHOOK_MAX_ATTEMPTS:5}
+    initial-backoff-millis: ${FINCORE_MERCHANT_WEBHOOK_INITIAL_BACKOFF_MILLIS:1000}
+    max-backoff-millis: ${FINCORE_MERCHANT_WEBHOOK_MAX_BACKOFF_MILLIS:60000}
+    fixed-delay-ms: ${FINCORE_MERCHANT_WEBHOOK_FIXED_DELAY_MS:1000}
+  provider-webhook:
+    enabled: ${FINCORE_PROVIDER_WEBHOOK_ENABLED:false}
+    signing-key: ${FINCORE_PROVIDER_WEBHOOK_SIGNING_KEY:}
+    key-id: ${FINCORE_PROVIDER_WEBHOOK_KEY_ID:sandbox-v1}
+    instance-id: ${FINCORE_PROVIDER_WEBHOOK_INSTANCE_ID:00000000-0000-0000-0000-000000000000}
+    tolerance-seconds: ${FINCORE_PROVIDER_WEBHOOK_TOLERANCE_SECONDS:300}
+  provider:
+    enabled: ${FINCORE_PROVIDER_ENABLED:false}
+    base-url: ${FINCORE_PROVIDER_BASE_URL:http://127.0.0.1:18081}
+    api-key: ${FINCORE_PROVIDER_API_KEY:}
+    instance-id: ${FINCORE_PROVIDER_INSTANCE_ID:00000000-0000-0000-0000-000000000000}
+    timeout-millis: ${FINCORE_PROVIDER_TIMEOUT_MILLIS:2000}
+    lease-seconds: ${FINCORE_PROVIDER_LEASE_SECONDS:30}
+  projection-operations:
+    review-after-days: ${FINCORE_PROJECTION_REVIEW_AFTER_DAYS:30}
+    max-comparison-rows: ${FINCORE_PROJECTION_MAX_COMPARISON_ROWS:100000}
+  projection-approvals:
+    validity-minutes: ${FINCORE_PROJECTION_APPROVAL_VALIDITY_MINUTES:60}
+  operations:
+    username: ${FINCORE_OPERATIONS_USERNAME:}
+    password-hash: ${FINCORE_OPERATIONS_PASSWORD_HASH:}
+  events:
+    transport: ${FINCORE_EVENT_TRANSPORT:local}
+  kafka:
+    source-name: ${FINCORE_KAFKA_SOURCE_NAME:primary}
+    topic: ${FINCORE_KAFKA_TOPIC:payment-events.v1}
+    consumer-group: ${FINCORE_KAFKA_CONSUMER_GROUP:fincore-payment-projection-v1}
+    send-timeout-ms: ${FINCORE_KAFKA_SEND_TIMEOUT_MS:15000}
+  outbox:
+    enabled: ${FINCORE_OUTBOX_ENABLED:false}
+    fixed-delay-ms: ${FINCORE_OUTBOX_FIXED_DELAY_MS:1000}
+    batch-size: ${FINCORE_OUTBOX_BATCH_SIZE:50}
+    max-attempts: ${FINCORE_OUTBOX_MAX_ATTEMPTS:5}
+    initial-backoff-ms: ${FINCORE_OUTBOX_INITIAL_BACKOFF_MS:1000}
+    max-backoff-ms: ${FINCORE_OUTBOX_MAX_BACKOFF_MS:60000}
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+
+management:
+  endpoints:
+    access:
+      default: none
+      max-permitted: read-only
+    web:
+      base-path: /internal/observability
+      discovery:
+        enabled: false
+      exposure:
+        include: health,prometheus
+    jmx:
+      exposure:
+        exclude: '*'
+  endpoint:
+    health:
+      access: read-only
+      show-details: never
+      show-components: never
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db
+    prometheus:
+      access: read-only
+  prometheus:
+    metrics:
+      export:
+        enabled: ${fincore.observability.enabled}
+  tracing:
+    enabled: ${fincore.observability.enabled}
+    sampling:
+      probability: ${FINCORE_TRACE_SAMPLING_PROBABILITY:0.1}
+    baggage:
+      enabled: false
+    opentelemetry:
+      export:
+        max-queue-size: 256
+        max-batch-size: 64
+        schedule-delay: 1s
+        timeout: 2s
+  otlp:
+    tracing:
+      export:
+        enabled: false # Explicit validated localTraceExporter bean opts in instead.
+  metrics:
+    distribution:
+      slo:
+        fincore.flow: 10ms,100ms,500ms,1s,5s,30s

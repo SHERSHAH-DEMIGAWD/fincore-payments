@@ -1,0 +1,55 @@
+name: fincore-payments container validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-demonstrate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install checksum-verified Prometheus for integration tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/fincore-prometheus"
+          cd "$RUNNER_TEMP/fincore-prometheus"
+          release='https://github.com/prometheus/prometheus/releases/download/v3.5.0'
+          archive='prometheus-3.5.0.linux-amd64.tar.gz'
+          curl --fail --location --silent --show-error --retry 3 "$release/$archive" --output "$archive"
+          curl --fail --location --silent --show-error --retry 3 "$release/sha256sums.txt" --output sha256sums.txt
+          awk -v archive="$archive" '$2 == archive { print }' sha256sums.txt > archive.sha256
+          test -s archive.sha256
+          sha256sum --check archive.sha256
+          tar --extract --gzip --file "$archive"
+          printf 'FINCORE_TEST_PROMETHEUS_BIN=%s/fincore-prometheus/prometheus-3.5.0.linux-amd64/prometheus\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Run complete container regression and Redis/Kafka acceptance
+        run: |
+          chmod +x mvnw
+          ./scripts/Run-ContainerValidation.ps1 -OutputDirectory "$PWD/release-artifacts/ci"
+      - name: Upload safe validation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fincore-validation-evidence
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            release-artifacts/ci/container-validation.json
+            release-artifacts/ci/acceptance.json

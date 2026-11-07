@@ -1,0 +1,106 @@
+rule_files: [alerts.yml]
+evaluation_interval: 1m
+tests:
+  - name: scrape failure needs sustained evidence
+    interval: 1m
+    input_series:
+      - series: 'up{job="fincore-payments",instance="api"}'
+        values: '1 0 0 1'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FincoreScrapeDown
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: FincoreScrapeDown
+        exp_alerts:
+          - exp_labels: {job: fincore-payments, instance: api, severity: critical}
+            exp_annotations: {summary: 'Payment metrics endpoint cannot be scraped', runbook: 'docs/OBSERVABILITY_RUNBOOK.md#scrape-down'}
+  - name: stale snapshot is visible
+    interval: 1m
+    input_series:
+      - series: 'fincore_ops_snapshot_available{job="fincore-payments",instance="api"}'
+        values: '1+0x4'
+      - series: 'fincore_ops_snapshot_interval_seconds{job="fincore-payments",instance="api"}'
+        values: '15+0x5'
+      - series: 'fincore_ops_snapshot_age_seconds{job="fincore-payments",instance="api"}'
+        values: '0 60 120 180 240'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: FincoreSnapshotStale
+        exp_alerts:
+          - exp_labels: {job: fincore-payments, instance: api, severity: warning}
+            exp_annotations: {summary: 'Operational source snapshot is stale', runbook: 'docs/OBSERVABILITY_RUNBOOK.md#snapshot-unavailable'}
+  - name: healthy source confirms old pending work
+    interval: 1m
+    input_series:
+      - series: 'fincore_ops_snapshot_up{job="fincore-payments",instance="api"}'
+        values: '1+0x4'
+      - series: 'fincore_ops_snapshot_interval_seconds{job="fincore-payments",instance="api"}'
+        values: '15+0x5'
+      - series: 'fincore_ops_snapshot_age_seconds{job="fincore-payments",instance="api"}'
+        values: '0+0x4'
+      - series: 'fincore_backlog_count{job="fincore-payments",instance="api",component="outbox",state="pending"}'
+        values: '2+0x4'
+      - series: 'fincore_backlog_oldest_age_seconds{job="fincore-payments",instance="api",component="outbox",state="pending"}'
+        values: '180+60x4'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: FincoreOutboxStalled
+        exp_alerts:
+          - exp_labels: {job: fincore-payments, instance: api, component: outbox, state: pending, severity: warning}
+            exp_annotations: {summary: 'Pending payment events are older than two minutes', runbook: 'docs/OBSERVABILITY_RUNBOOK.md#outbox-stalled'}
+  - name: failed sampling does not masquerade as a current backlog fact
+    interval: 1m
+    input_series:
+      - series: 'fincore_ops_snapshot_up{job="fincore-payments",instance="api"}'
+        values: '0+0x4'
+      - series: 'fincore_ops_snapshot_interval_seconds{job="fincore-payments",instance="api"}'
+        values: '15+0x5'
+      - series: 'fincore_ops_snapshot_age_seconds{job="fincore-payments",instance="api"}'
+        values: '0+60x4'
+      - series: 'fincore_backlog_count{job="fincore-payments",instance="api",component="outbox",state="pending"}'
+        values: '2+0x4'
+      - series: 'fincore_backlog_oldest_age_seconds{job="fincore-payments",instance="api",component="outbox",state="pending"}'
+        values: '180+60x4'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: FincoreOutboxStalled
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: FincoreSnapshotUnavailable
+        exp_alerts:
+          - exp_labels: {job: fincore-payments, instance: api, severity: warning}
+            exp_annotations: {summary: 'Operational source snapshot is unavailable', runbook: 'docs/OBSERVABILITY_RUNBOOK.md#snapshot-unavailable'}
+  - name: missing snapshot samples do not prove an operational backlog
+    interval: 1m
+    input_series:
+      - series: 'fincore_backlog_count{job="fincore-payments",instance="api",component="outbox",state="pending"}'
+        values: '2+0x4'
+      - series: 'fincore_backlog_oldest_age_seconds{job="fincore-payments",instance="api",component="outbox",state="pending"}'
+        values: '180+60x4'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: FincoreOutboxStalled
+        exp_alerts: []
+  - name: one low volume failure does not establish a sustained error ratio
+    interval: 1m
+    input_series:
+      - series: 'fincore_flow_calls_total{job="fincore-payments",instance="api",flow="payment_create",outcome="error"}'
+        values: '0 0 1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: FincorePaymentErrors
+        exp_alerts: []
+  - name: configured slower sampling does not falsely look stale
+    interval: 1m
+    input_series:
+      - series: 'fincore_ops_snapshot_interval_seconds{job="fincore-payments",instance="api"}'
+        values: '60+0x5'
+      - series: 'fincore_ops_snapshot_available{job="fincore-payments",instance="api"}'
+        values: '1+0x5'
+      - series: 'fincore_ops_snapshot_age_seconds{job="fincore-payments",instance="api"}'
+        values: '0+60x5'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: FincoreSnapshotStale
+        exp_alerts: []

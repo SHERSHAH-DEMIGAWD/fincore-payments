@@ -1,0 +1,26 @@
+services:
+  jaeger:
+    image: cr.jaegertracing.io/jaegertracing/jaeger:2.22.0
+    profiles: ["observability"]
+    ports:
+      - "127.0.0.1:16686:16686"
+      - "127.0.0.1:4318:4318"
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: ["observability"]
+    ports:
+      - "127.0.0.1:19090:9090"
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d", "--storage.tsdb.retention.size=256MB"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - payments-prometheus-data:/prometheus
+    secrets: [metrics_username, metrics_password]
+volumes:
+  payments-prometheus-data:
+secrets:
+  metrics_username:
+    file: ./.observability-secrets/metrics-username
+  metrics_password:
+    file: ./.observability-secrets/metrics-password

@@ -1,0 +1,4 @@
+<configuration>
+    <!-- Explicit headless bootstrap reports only; no credentials/SQL diagnostics on console. -->
+    <root level="OFF"/>
+</configuration>

@@ -1,0 +1,9 @@
+*
+!Dockerfile
+!.dockerignore
+!target/
+target/*
+!target/fincore-payments-0.0.1-SNAPSHOT.jar
+!deployment/
+deployment/*
+!deployment/entrypoint.sh

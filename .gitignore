@@ -1,0 +1,26 @@
+/target/
+/.tools/
+/.idea/
+/.vscode/
+*.iml
+.env
+.env.*
+!.env.example
+*.log
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+.DS_Store
+Thumbs.db
+/.sandbox-provider/
+/.observability-secrets/
+/recovery-artifacts/
+/deployment/.secrets/
+/deployment/evidence/
+/release-artifacts/
+# Private host setup records are retained locally, outside the public repository.
+/docs/CONTAINER_VALIDATION_STATUS.md
+/docs/WINDOWS_RUNTIME_REPAIR_HANDOFF.md

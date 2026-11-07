@@ -1,0 +1,204 @@
+name: fincore-local-sandbox
+
+x-app: &app
+  image: fincore-payments:milestone25
+  build:
+    context: ..
+    args:
+      JAR_SHA256: ${FINCORE_JAR_SHA256:?Build the verified JAR and set its SHA-256}
+      JAVA_IMAGE: ${FINCORE_JAVA_IMAGE:-eclipse-temurin:21-jre-jammy@sha256:9603446cf51296842eab342514857cf7ab55a8891cd564e6c68ec237fae65a16}
+  read_only: true
+  tmpfs: ["/tmp:rw,noexec,nosuid,size=128m,uid=10001,gid=10001"]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 256
+  mem_limit: 768m
+  cpus: 2.0
+  stop_grace_period: 40s
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+services:
+  postgres:
+    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94
+    environment:
+      POSTGRES_DB: fincore_demo
+      POSTGRES_USER: fincore_demo
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets: [db_password]
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U fincore_demo -d fincore_demo"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 512m
+    pids_limit: 128
+
+  bootstrap:
+    <<: *app
+    command: [bootstrap-local-sandbox]
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/fincore_demo
+      DB_USERNAME: fincore_demo
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      FINCORE_DEMO_A_PASSWORD_FILE: /run/secrets/merchant_a
+      FINCORE_DEMO_B_PASSWORD_FILE: /run/secrets/merchant_b
+    secrets: [db_password, merchant_a, merchant_b]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  api:
+    <<: *app
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/fincore_demo
+      DB_USERNAME: fincore_demo
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      SERVER_PORT: "8080"
+      FINCORE_PROVIDER_ENABLED: "true"
+      FINCORE_PROVIDER_BASE_URL: http://127.0.0.1:18081
+      FINCORE_PROVIDER_API_KEY_FILE: /run/secrets/provider_key
+      FINCORE_PROVIDER_INSTANCE_ID_FILE: /run/secrets/instance
+      FINCORE_PROVIDER_WEBHOOK_ENABLED: "true"
+      FINCORE_PROVIDER_WEBHOOK_SIGNING_KEY_FILE: /run/secrets/callback_key
+      FINCORE_PROVIDER_WEBHOOK_INSTANCE_ID_FILE: /run/secrets/instance
+      FINCORE_MERCHANT_WEBHOOKS_ENABLED: "true"
+      FINCORE_MERCHANT_WEBHOOK_DISPATCH_ENABLED: "true"
+      FINCORE_MERCHANT_WEBHOOK_MASTER_KEY_FILE: /run/secrets/master_key
+      FINCORE_MERCHANT_WEBHOOK_ALLOWED_DESTINATIONS: http://127.0.0.1:18082/webhooks
+      FINCORE_MERCHANT_WEBHOOK_MAX_ATTEMPTS: "2"
+      FINCORE_MERCHANT_WEBHOOK_INITIAL_BACKOFF_MILLIS: "100"
+      FINCORE_MERCHANT_WEBHOOK_MAX_BACKOFF_MILLIS: "500"
+      FINCORE_MERCHANT_WEBHOOK_FIXED_DELAY_MS: "200"
+      FINCORE_SETTLEMENT_ENABLED: "true"
+      FINCORE_SETTLEMENT_SIGNING_KEY_FILE: /run/secrets/settlement_key
+      FINCORE_SETTLEMENT_INSTANCE_ID_FILE: /run/secrets/instance
+      FINCORE_RISK_ENABLED: "true"
+      FINCORE_RISK_MAX_ADMISSIONS: "1000"
+      FINCORE_RISK_NAMESPACE: milestone25
+      FINCORE_OUTBOX_ENABLED: "true"
+      FINCORE_EVENT_TRANSPORT: kafka
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      FINCORE_OBSERVABILITY_ENABLED: "true"
+      FINCORE_OBSERVABILITY_USERNAME: demo-observer
+      FINCORE_OBSERVABILITY_PASSWORD_HASH_FILE: /run/secrets/observer_hash
+      FINCORE_OPERATIONS_USERNAME: demo-operator
+      FINCORE_OPERATIONS_PASSWORD_HASH_FILE: /run/secrets/operator_hash
+      FINCORE_DEMO_OBSERVER_PASSWORD_FILE: /run/secrets/observer_password
+    ports: ["127.0.0.1:${FINCORE_DEMO_PORT:-18080}:8080"]
+    volumes: ["evidence:/evidence"]
+    secrets: [db_password, observer_password, observer_hash, operator_hash, provider_key, callback_key, master_key, settlement_key, instance]
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+      kafka: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, /app/entrypoint.sh, probe-readiness, "--url=http://127.0.0.1:8080"]
+      start_period: 60s
+      interval: 15s
+      timeout: 8s
+      retries: 12
+
+  provider:
+    <<: *app
+    network_mode: service:api
+    command: [provider-sandbox]
+    environment:
+      FINCORE_SANDBOX_API_KEY_FILE: /run/secrets/provider_key
+      FINCORE_SANDBOX_INSTANCE_ID_FILE: /run/secrets/instance
+      FINCORE_SANDBOX_WEBHOOK_URL: http://127.0.0.1:8080/api/v1/provider-webhooks/sandbox
+      FINCORE_SANDBOX_WEBHOOK_KEY_FILE: /run/secrets/callback_key
+      FINCORE_SANDBOX_WEBHOOK_AUTO_SEND: "false"
+      FINCORE_SANDBOX_SETTLEMENT_SIGNING_KEY_FILE: /run/secrets/settlement_key
+    volumes: ["provider-data:/data"]
+    secrets: [provider_key, instance, callback_key, settlement_key]
+    depends_on:
+      api: {condition: service_started}
+
+  redis:
+    image: redis:7.4.2-alpine@sha256:02419de7eddf55aa5bcf49efb74e88fa8d931b4d77c07eff8a6b2144472b6952
+    user: "10001:10001"
+    network_mode: service:api
+    command: [redis-server, --bind, "127.0.0.1", --save, "", --appendonly, "no", --maxmemory, 64mb, --maxmemory-policy, noeviction]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 64
+    healthcheck:
+      test: [CMD, redis-cli, -h, "127.0.0.1", ping]
+      interval: 5s
+      timeout: 2s
+      retries: 20
+    depends_on:
+      api: {condition: service_started}
+
+  acceptance:
+    <<: *app
+    profiles: [acceptance]
+    network_mode: service:api
+    command: [sandbox-acceptance, "--url=http://127.0.0.1:8080", "--provider-url=http://127.0.0.1:18081", "--sink-port=18082", "--report=/evidence/acceptance.json", "--requests=24", "--concurrency=4"]
+    environment:
+      FINCORE_DEMO_A_PASSWORD_FILE: /run/secrets/merchant_a
+      FINCORE_DEMO_B_PASSWORD_FILE: /run/secrets/merchant_b
+      FINCORE_DEMO_OBSERVER_PASSWORD_FILE: /run/secrets/observer_password
+      FINCORE_DEMO_OPERATOR_PASSWORD_FILE: /run/secrets/operator_password
+      FINCORE_PROVIDER_API_KEY_FILE: /run/secrets/provider_key
+      FINCORE_DEMO_SUBSCRIPTION_REQUEST_ID_FILE: /run/secrets/subscription_request
+      FINCORE_DEMO_REQUIRE_RISK: "true"
+      FINCORE_DEMO_EXPECT_KAFKA: "true"
+    volumes: ["evidence:/evidence"]
+    secrets: [merchant_a, merchant_b, observer_password, operator_password, provider_key, subscription_request]
+    depends_on:
+      api: {condition: service_healthy}
+      provider: {condition: service_started}
+      redis: {condition: service_healthy}
+
+  kafka:
+    image: apache/kafka:3.9.1@sha256:4ceccc577f03f51f6af8dbfda55194d0d892f4fa7913ffbded567ce3895622ed
+    hostname: kafka
+    environment:
+      KAFKA_HEAP_OPTS: -Xms128m -Xmx512m
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:19092,CONTROLLER://:29093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes: ["kafka-data:/var/lib/kafka/data"]
+    mem_limit: 1g
+    pids_limit: 256
+    healthcheck:
+      test: [CMD-SHELL, "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:19092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 18
+
+volumes:
+  postgres-data:
+  provider-data:
+  evidence:
+  kafka-data:
+
+secrets:
+  db_password: {file: ./.secrets/DB_PASSWORD}
+  merchant_a: {file: ./.secrets/FINCORE_DEMO_A_PASSWORD}
+  merchant_b: {file: ./.secrets/FINCORE_DEMO_B_PASSWORD}
+  observer_password: {file: ./.secrets/FINCORE_DEMO_OBSERVER_PASSWORD}
+  observer_hash: {file: ./.secrets/FINCORE_OBSERVABILITY_PASSWORD_HASH}
+  operator_password: {file: ./.secrets/FINCORE_DEMO_OPERATOR_PASSWORD}
+  operator_hash: {file: ./.secrets/FINCORE_OPERATIONS_PASSWORD_HASH}
+  provider_key: {file: ./.secrets/FINCORE_PROVIDER_API_KEY}
+  callback_key: {file: ./.secrets/FINCORE_PROVIDER_WEBHOOK_SIGNING_KEY}
+  settlement_key: {file: ./.secrets/FINCORE_SETTLEMENT_SIGNING_KEY}
+  master_key: {file: ./.secrets/FINCORE_MERCHANT_WEBHOOK_MASTER_KEY}
+  instance: {file: ./.secrets/FINCORE_PROVIDER_INSTANCE_ID}
+  subscription_request: {file: ./.secrets/FINCORE_DEMO_SUBSCRIPTION_REQUEST_ID}

@@ -1,0 +1,82 @@
+groups:
+  - name: fincore-payments
+    rules:
+      - alert: FincoreScrapeDown
+        expr: up{job="fincore-payments"} == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: 'Payment metrics endpoint cannot be scraped', runbook: 'docs/OBSERVABILITY_RUNBOOK.md#scrape-down'}
+      - alert: FincoreSnapshotUnavailable
+        expr: fincore_ops_snapshot_up == 0
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: 'Operational source snapshot is unavailable', runbook: 'docs/OBSERVABILITY_RUNBOOK.md#snapshot-unavailable'}
+      - alert: FincoreSnapshotStale
+        expr: (fincore_ops_snapshot_age_seconds > on(job,instance) (fincore_ops_snapshot_interval_seconds * 3)) and on(job,instance) (fincore_ops_snapshot_available == 1)
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: 'Operational source snapshot is stale', runbook: 'docs/OBSERVABILITY_RUNBOOK.md#snapshot-unavailable'}
+      - alert: FincoreOutboxStalled
+        expr: |
+          (fincore_backlog_count{component="outbox",state="pending"} > 0)
+          and on(job,instance,component,state) (fincore_backlog_oldest_age_seconds{component="outbox",state="pending"} > 120)
+          and on(job,instance) (fincore_ops_snapshot_up == 1)
+          and on(job,instance) (fincore_ops_snapshot_age_seconds < on(job,instance) (fincore_ops_snapshot_interval_seconds * 3))
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: 'Pending payment events are older than two minutes', runbook: 'docs/OBSERVABILITY_RUNBOOK.md#outbox-stalled'}
+      - alert: FincoreDeadDeliveries
+        expr: |
+          (fincore_backlog_count{component=~"outbox|merchant_webhook",state="dead"} > 0)
+          and on(job,instance) (fincore_ops_snapshot_up == 1)
+          and on(job,instance) (fincore_ops_snapshot_age_seconds < on(job,instance) (fincore_ops_snapshot_interval_seconds * 3))
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: 'Delivery retry budget is exhausted', runbook: 'docs/OBSERVABILITY_RUNBOOK.md#dead-deliveries'}
+      - alert: FincoreProviderNeedsReview
+        expr: |
+          (fincore_backlog_count{component="provider",state=~"unknown|review|lease_expired"} > 0)
+          and on(job,instance,component,state) (fincore_backlog_oldest_age_seconds{component="provider",state=~"unknown|review|lease_expired"} > 60)
+          and on(job,instance) (fincore_ops_snapshot_up == 1)
+          and on(job,instance) (fincore_ops_snapshot_age_seconds < on(job,instance) (fincore_ops_snapshot_interval_seconds * 3))
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: 'Provider execution needs investigation', runbook: 'docs/OBSERVABILITY_RUNBOOK.md#provider-uncertainty'}
+      - alert: FincoreConsumerGap
+        expr: |
+          (fincore_backlog_count{component="consumer",state="unresolved"} > 0)
+          and on(job,instance,component,state) (fincore_backlog_oldest_age_seconds{component="consumer",state="unresolved"} > 120)
+          and on(job,instance) (fincore_ops_snapshot_up == 1)
+          and on(job,instance) (fincore_ops_snapshot_age_seconds < on(job,instance) (fincore_ops_snapshot_interval_seconds * 3))
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: 'Consumer failure evidence remains unresolved', runbook: 'docs/OBSERVABILITY_RUNBOOK.md#consumer-gap'}
+      - alert: FincoreSettlementDiscrepancy
+        expr: |
+          (fincore_backlog_count{component="settlement",state="unresolved_report"} > 0)
+          and on(job,instance,component,state) (fincore_backlog_oldest_age_seconds{component="settlement",state="unresolved_report"} > 600)
+          and on(job,instance) (fincore_ops_snapshot_up == 1)
+          and on(job,instance) (fincore_ops_snapshot_age_seconds < on(job,instance) (fincore_ops_snapshot_interval_seconds * 3))
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'Settlement discrepancy reports remain unresolved', runbook: 'docs/OBSERVABILITY_RUNBOOK.md#settlement-discrepancy'}
+      - alert: FincoreRiskUnavailable
+        expr: sum by(job,instance) (increase(fincore_flow_calls_total{flow="risk_check",outcome="unavailable"}[5m])) >= 3
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: 'New payment admission repeatedly cannot establish risk capacity', runbook: 'docs/OBSERVABILITY_RUNBOOK.md#risk-unavailable'}
+      - alert: FincorePaymentErrors
+        expr: |
+          (sum by(job,instance) (rate(fincore_flow_calls_total{flow="payment_create",outcome="error"}[5m]))
+          / clamp_min(sum by(job,instance) (rate(fincore_flow_calls_total{flow="payment_create"}[5m])), 0.000000001) > 0.1)
+          and on(job,instance) (sum by(job,instance) (increase(fincore_flow_calls_total{flow="payment_create"}[5m])) >= 10)
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: 'Unexpected payment creation error ratio exceeds ten percent', runbook: 'docs/OBSERVABILITY_RUNBOOK.md#payment-errors'}
+      - alert: FincorePaymentLatency
+        expr: |
+          (histogram_quantile(0.95, sum by(le,job,instance) (rate(fincore_flow_seconds_bucket{flow="payment_create"}[5m]))) > 1)
+          and on(job,instance) (sum by(job,instance) (increase(fincore_flow_seconds_count{flow="payment_create"}[5m])) >= 20)
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: 'Payment creation p95 latency exceeds one second', runbook: 'docs/OBSERVABILITY_RUNBOOK.md#payment-errors'}
